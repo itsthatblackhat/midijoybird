@@ -12,7 +12,10 @@ config_path = 'config.json'
 def load_mappings():
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            return json.load(f)
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
     return {}
 
 # Save MIDI to input mappings
