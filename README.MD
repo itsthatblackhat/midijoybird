@@ -7,7 +7,7 @@ This project maps MIDI inputs from a Novation Launchpad Mini to gamepad buttons 
 
 1. Clone the repository:
    ```bash
-   git clone <repository_url>
+   git clone https://github.com/itsthatblackhat/midijoybird.git
    cd MidiJoy-LaunchpadMini
    ```
 
