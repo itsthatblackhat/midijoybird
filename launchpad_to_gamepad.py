@@ -1,8 +1,11 @@
+import sys
 import mido
 import vgamepad as vg
 import time
 import json
 import os
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QInputDialog, QMessageBox
+from PyQt5.QtCore import Qt
 from pynput.keyboard import Controller as KeyboardController
 
 # Path to the configuration file
@@ -45,40 +48,40 @@ def press_keyboard_key(key):
     keyboard.release(key)
 
 # Setup mode to map MIDI notes to gamepad buttons or keyboard keys
-def setup_mode(port):
+def setup_mode(port, window):
     global midi_to_input_map
-    print("Entered setup mapping mode. Press a button on the Launchpad to map it to a gamepad button or keyboard key.")
-    while True:
-        for message in port:
-            if message.type == 'note_on' and message.velocity > 0:
-                midi_note = message.note
-                input_type = input(f"Do you want to map MIDI note {midi_note} to a gamepad button or a keyboard key? (Enter 'gamepad' or 'keyboard', or 'exit' to return to main menu): ").strip().lower()
-                if input_type == 'exit':
-                    return
-                elif input_type == 'gamepad':
-                    while True:
-                        try:
-                            button = int(input(f"Enter the gamepad button number to map to MIDI note {midi_note} (an integer from 1 to 15 for buttons, 16 to 23 for axes): "))
-                            midi_to_input_map[midi_note] = {"type": "gamepad", "value": button}
-                            save_mappings(midi_to_input_map)
-                            print(f"Mapped MIDI note {midi_note} to gamepad button {button}.")
-                            break
-                        except ValueError:
-                            print("Invalid input. Please enter a valid integer.")
-                    break
-                elif input_type == 'keyboard':
-                    key = input(f"Enter the keyboard key to map to MIDI note {midi_note} (e.g., 'a', 'space', 'enter'): ").strip()
-                    midi_to_input_map[midi_note] = {"type": "keyboard", "value": key}
+    QMessageBox.information(window, "Setup Mode", "Entered setup mapping mode. Press a button on the Launchpad to map it to a gamepad button or keyboard key.")
+    for message in port:
+        if message.type == 'note_on' and message.velocity > 0:
+            midi_note = message.note
+            input_type, ok = QInputDialog.getText(window, "Input Type", f"Do you want to map MIDI note {midi_note} to a gamepad button or a keyboard key? (Enter 'gamepad' or 'keyboard', or 'exit' to return to main menu): ")
+            if not ok or input_type.strip().lower() == 'exit':
+                return
+            elif input_type.strip().lower() == 'gamepad':
+                while True:
+                    button, ok = QInputDialog.getInt(window, "Gamepad Button", f"Enter the gamepad button number to map to MIDI note {midi_note} (an integer from 1 to 15 for buttons, 16 to 23 for axes): ")
+                    if ok:
+                        midi_to_input_map[midi_note] = {"type": "gamepad", "value": button}
+                        save_mappings(midi_to_input_map)
+                        QMessageBox.information(window, "Mapping Saved", f"Mapped MIDI note {midi_note} to gamepad button {button}.")
+                        break
+                    else:
+                        QMessageBox.warning(window, "Invalid Input", "Invalid input. Please enter a valid integer.")
+            elif input_type.strip().lower() == 'keyboard':
+                key, ok = QInputDialog.getText(window, "Keyboard Key", f"Enter the keyboard key to map to MIDI note {midi_note} (e.g., 'a', 'space', 'enter'): ")
+                if ok:
+                    midi_to_input_map[midi_note] = {"type": "keyboard", "value": key.strip()}
                     save_mappings(midi_to_input_map)
-                    print(f"Mapped MIDI note {midi_note} to keyboard key {key}.")
-                    break
+                    QMessageBox.information(window, "Mapping Saved", f"Mapped MIDI note {midi_note} to keyboard key {key.strip()}.")
                 else:
-                    print("Invalid input. Please enter 'gamepad', 'keyboard', or 'exit'.")
+                    QMessageBox.warning(window, "Invalid Input", "Invalid input. Please enter a valid key.")
+            else:
+                QMessageBox.warning(window, "Invalid Input", "Invalid input. Please enter 'gamepad', 'keyboard', or 'exit'.")
 
 # Main function to map MIDI input to gamepad buttons or keyboard keys
-def listen_for_midi(port):
+def listen_for_midi(port, window):
     global midi_to_input_map
-    print("Listening for MIDI inputs...")
+    QMessageBox.information(window, "Listening", "Listening for MIDI inputs...")
     for message in port:
         if message.type == 'note_on' and message.velocity > 0:
             midi_note = message.note
@@ -87,43 +90,67 @@ def listen_for_midi(port):
                 input_type = input_map["type"]
                 value = input_map["value"]
                 if input_type == "gamepad":
-                    print(f"Pressing gamepad button: {value} for MIDI note: {midi_note}")
                     press_gamepad_button(value)
                 elif input_type == "keyboard":
-                    print(f"Pressing keyboard key: {value} for MIDI note: {midi_note}")
                     press_keyboard_key(value)
             else:
-                print(f"No input mapping found for MIDI note: {midi_note}")
+                QMessageBox.information(window, "No Mapping Found", f"No input mapping found for MIDI note: {midi_note}")
+
+def select_midi_port(window):
+    ports = mido.get_input_names()
+    if not ports:
+        QMessageBox.critical(window, "Error", "No MIDI input ports found.")
+        return None
+
+    items = [f"{i}: {port}" for i, port in enumerate(ports)]
+    item, ok = QInputDialog.getItem(window, "Select MIDI Input Port", "Available MIDI input ports:", items, 0, False)
+    if ok:
+        return ports[int(item.split(":")[0])]
+    return None
+
+class MidiJoyApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+
+        self.listen_button = QPushButton('Listen for MIDI Inputs', self)
+        self.listen_button.clicked.connect(self.on_listen)
+        layout.addWidget(self.listen_button)
+
+        self.setup_button = QPushButton('Setup Mode', self)
+        self.setup_button.clicked.connect(self.on_setup)
+        layout.addWidget(self.setup_button)
+
+        self.exit_button = QPushButton('Exit', self)
+        self.exit_button.clicked.connect(self.on_exit)
+        layout.addWidget(self.exit_button)
+
+        self.setLayout(layout)
+        self.setWindowTitle('Launchpad to Gamepad/Keyboard Mapper')
+        self.show()
+
+    def on_listen(self):
+        port_name = select_midi_port(self)
+        if port_name:
+            with mido.open_input(port_name) as port:
+                listen_for_midi(port, self)
+
+    def on_setup(self):
+        port_name = select_midi_port(self)
+        if port_name:
+            with mido.open_input(port_name) as port:
+                setup_mode(port, self)
+
+    def on_exit(self):
+        self.close()
 
 def main():
-    global midi_to_input_map
-
-    # Select MIDI input port
-    print("Available MIDI input ports:")
-    for i, port in enumerate(mido.get_input_names()):
-        print(f"{i}: {port}")
-    port_index = int(input("Select the MIDI input port index: "))
-    port_name = mido.get_input_names()[port_index]
-
-    with mido.open_input(port_name) as port:
-        print(f"Opened MIDI input port: {port_name}")
-
-        while True:
-            print("\nMenu:")
-            print("1. Listen for MIDI inputs")
-            print("2. Setup mode (map MIDI notes to gamepad buttons or keyboard keys)")
-            print("3. Exit")
-            choice = input("Select an option: ")
-
-            if choice == '1':
-                listen_for_midi(port)
-            elif choice == '2':
-                setup_mode(port)
-            elif choice == '3':
-                print("Exiting...")
-                break
-            else:
-                print("Invalid choice. Please select a valid option.")
+    app = QApplication(sys.argv)
+    ex = MidiJoyApp()
+    sys.exit(app.exec_())
 
 if __name__ == "__main__":
     main()
